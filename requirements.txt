@@ -1,4 +1,39 @@
-fastapi
-uvicorn
-yt-dlp
-ffmpeg-python
+# YouTube Downloader Backend Server Requirements
+
+# Core web framework
+Flask==3.0.0
+Werkzeug==3.0.1
+
+# CORS support for frontend integration
+Flask-CORS==4.0.0
+
+# YouTube downloader library (fork of youtube-dl with active development)
+yt-dlp==2023.12.30
+
+# HTTP client library (dependency for yt-dlp)
+requests==2.31.0
+
+# URL parsing and manipulation
+urllib3==2.1.0
+
+# Certificate verification
+certifi==2023.11.17
+
+# Character encoding detection
+charset-normalizer==3.3.2
+
+# HTTP library
+idna==3.6
+
+# JSON Web Token support (optional, for authentication if needed)
+# PyJWT==2.8.0
+
+# File handling utilities
+# python-magic==0.4.27
+
+# Logging and debugging (optional)
+# python-dotenv==1.0.0
+
+# Production WSGI server (optional, for deployment)
+# gunicorn==21.2.0
+# waitress==2.1.2

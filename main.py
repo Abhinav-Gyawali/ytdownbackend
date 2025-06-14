@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -101,7 +101,15 @@ async def handle_get_formats(ws: WebSocket, data: dict):
                 "event": "formats",
                 "data": {
                     "title": "Spotify Track",
-                    "audio_formats": [{"format_id": "spotify_mp3", "ext": "mp3"}],
+                    "url": url,
+                    "audio_formats": [
+                        {
+                            "format_id": "spotify_mp3",
+                            "ext": "mp3",
+                            "abr": 82.48,
+                            "filesize": 8374838,
+                        }
+                    ],
                     "video_formats": [],
                 },
             }
@@ -185,7 +193,16 @@ async def handle_download(ws: WebSocket, data: dict):
         print(f"🎵 Starting Spotify download for URL: {url}")
         try:
             # Print the command being executed
-            cmd = ["spotdl", url, "--format", "mp3", "--bitrate", "320k"]
+            cmd = [
+                "spotdl",
+                url,
+                "--format",
+                "mp3",
+                "--bitrate",
+                "disable",
+                "--cookie-file",
+                "cookies.txt",
+            ]
             print(f"📋 Executing command: {' '.join(cmd)}")
             print(f"📁 Working directory: {DOWNLOAD_DIR}")
 

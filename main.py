@@ -110,7 +110,12 @@ async def handle_get_formats(ws: WebSocket, data: dict):
 
     try:
         print("[handle_get_formats] Initializing yt_dlp with options")
-        ydl_opts = {"quiet": True, "format": "best", "nocheckcertificate": True}
+        ydl_opts = {
+            "cookiefile": "cookies.txt",
+            "quiet": True,
+            "format": "best",
+            "nocheckcertificate": True,
+        }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             print("[handle_get_formats] Extracting info with yt_dlp")
@@ -337,6 +342,7 @@ async def handle_download(ws: WebSocket, data: dict):
     else:
         output_template = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
         ydl_opts = {
+            "cookiefile": "cookies.txt",
             "format": format_id,
             "outtmpl": output_template,
             "nocheckcertificate": True,

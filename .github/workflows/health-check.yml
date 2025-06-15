@@ -1,0 +1,31 @@
+name: Health Check and WebSocket Connection
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Runs every 10 minutes
+  workflow_dispatch:  # Allows manual triggering of the workflow
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check HTTP Endpoint
+        run: |
+          response=$(curl -s -w "\n%{http_code}" https://ytdownbackend.onrender.com/health)
+          status_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "Status Code: $status_code"
+          echo "Response Body: $body"
+          if [ "$status_code" -ne 200 ]; then
+            echo "Error: Received status code $status_code"
+            exit 1
+          fi
+
+      - name: Check WebSocket Connection
+        run: |
+          # Install websocat for WebSocket testing
+          curl -L -o websocat https://github.com/vi/websocat/releases/download/v1.11.0/websocat.x86_64-unknown-linux-musl
+          chmod +x websocat
+          
+          # Attempt WebSocket connection with 10 second timeout
+          timeout 10s ./websocat ws://ytdownbackend.onrender.com/ws || echo "WebSocket connection attempt completed"

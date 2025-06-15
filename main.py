@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from urllib.parse import quote
 import yt_dlp
+from pathlib import Path
 import os
 import uuid
 import asyncio
@@ -453,6 +454,37 @@ async def download(filename: str, request: Request):
             },
             media_type="application/octet-stream",
         )
+
+
+VIDEO_EXTS = {"mp4", "mkv", "webm"}
+AUDIO_EXTS = {"mp3", "m4a", "aac", "wav"}
+
+
+@app.get("/files")
+def get_available_files():
+    result_list = []
+    DIR = Path(DOWNLOAD_DIR)
+    if not DIR.exists() or not DIR.is_dir():
+        return JSONResponse(
+            content={"error": "Download directory not found"}, status_code=404
+        )
+
+    for file in DIR.iterdir():
+        if file.is_file():
+            name = file.name
+            size = file.stat().st_size
+            ext = file.suffix[1:].lower()  # get extension without the dot
+
+            if ext in VIDEO_EXTS:
+                file_type = "video"
+            elif ext in AUDIO_EXTS:
+                file_type = "audio"
+            else:
+                file_type = "others"
+
+            result_list.append({"name": name, "size": size, "type": file_type})
+
+    return result_list
 
 
 @app.get("/health")

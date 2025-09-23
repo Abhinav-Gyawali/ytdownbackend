@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libglib2.0-0 \
     libnss3 \
-    libgconf-2-4 \
     libx11-xcb1 \
     libxcomposite1 \
     libxcursor1 \
@@ -30,7 +29,7 @@ RUN apt-get update && apt-get install -y \
     libgtk-3-0 \
     libxss1 \
     libxtst6 \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \

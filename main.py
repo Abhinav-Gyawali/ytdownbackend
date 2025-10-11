@@ -51,6 +51,7 @@ def get_ydl_opts(additional_opts: dict = None) -> dict:
         "quiet": True,
         "no_warnings": True,
         "nocheckcertificate": True,
+        "cookiefile":"cookies.txt",
     }
     
     # Check if cookies.txt exists

@@ -54,23 +54,6 @@ def get_ydl_opts(additional_opts: dict = None) -> dict:
         "cookiefile":"cookies.txt",
     }
     
-    # Check if cookies.txt exists
-    if os.path.exists(COOKIES_FILE):
-        base_opts["cookiefile"] = COOKIES_FILE
-        print(f"✓ Using cookies from: {COOKIES_FILE}")
-    else:
-        print(f"⚠ Warning: cookies.txt not found at {COOKIES_FILE}")
-        print("  YouTube downloads may fail. Please add cookies.txt")
-        # Try to use browser cookies as fallback
-        try:
-            base_opts["cookiesfrombrowser"] = ("chrome",)
-            print("  Attempting to use Chrome browser cookies as fallback")
-        except:
-            pass
-    
-    if additional_opts:
-        base_opts.update(additional_opts)
-    
     return base_opts
 
 

@@ -22,6 +22,7 @@ app.add_middleware(
 )
 
 DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
+COOKIES_FILE = os.path.join(os.getcwd(), "cookies.txt")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 # Store active WebSocket connections by download_id
@@ -42,6 +43,34 @@ class DownloadRequest(BaseModel):
 
 class DeleteRequest(BaseModel):
     filename: str
+
+
+def get_ydl_opts(additional_opts: dict = None) -> dict:
+    """Get yt-dlp options with cookie handling"""
+    base_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "nocheckcertificate": True,
+    }
+    
+    # Check if cookies.txt exists
+    if os.path.exists(COOKIES_FILE):
+        base_opts["cookiefile"] = COOKIES_FILE
+        print(f"✓ Using cookies from: {COOKIES_FILE}")
+    else:
+        print(f"⚠ Warning: cookies.txt not found at {COOKIES_FILE}")
+        print("  YouTube downloads may fail. Please add cookies.txt")
+        # Try to use browser cookies as fallback
+        try:
+            base_opts["cookiesfrombrowser"] = ("chrome",)
+            print("  Attempting to use Chrome browser cookies as fallback")
+        except:
+            pass
+    
+    if additional_opts:
+        base_opts.update(additional_opts)
+    
+    return base_opts
 
 
 # WebSocket connection manager
@@ -95,12 +124,7 @@ async def get_formats(request: FormatRequest):
         }
     
     try:
-        ydl_opts = {
-            "cookiefile": "cookies.txt",
-            "quiet": True,
-            "format": "best",
-            "nocheckcertificate": True,
-        }
+        ydl_opts = get_ydl_opts({"format": "best"})
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -109,29 +133,57 @@ async def get_formats(request: FormatRequest):
             video_formats = []
             audio_formats = []
             
+            # Filter out duplicate formats and sort by quality
+            seen_video = set()
+            seen_audio = set()
+            
             for f in formats:
-                if f.get("vcodec") != "none":
-                    video_formats.append({
-                        "format_id": f["format_id"],
-                        "ext": f.get("ext"),
-                        "resolution": f.get("resolution"),
-                        "filesize": f.get("filesize"),
-                    })
-                elif f.get("acodec") != "none":
-                    audio_formats.append({
-                        "format_id": f["format_id"],
-                        "ext": f.get("ext"),
-                        "abr": f.get("abr"),
-                        "filesize": f.get("filesize"),
-                    })
+                if f.get("vcodec") != "none" and f.get("vcodec") != None:
+                    # Video format
+                    resolution = f.get("resolution", "unknown")
+                    if resolution not in seen_video:
+                        seen_video.add(resolution)
+                        video_formats.append({
+                            "format_id": f["format_id"],
+                            "ext": f.get("ext"),
+                            "resolution": resolution,
+                            "filesize": f.get("filesize"),
+                            "fps": f.get("fps"),
+                            "vcodec": f.get("vcodec"),
+                        })
+                elif f.get("acodec") != "none" and f.get("acodec") != None:
+                    # Audio format
+                    abr = f.get("abr", 0)
+                    if abr and abr not in seen_audio:
+                        seen_audio.add(abr)
+                        audio_formats.append({
+                            "format_id": f["format_id"],
+                            "ext": f.get("ext"),
+                            "abr": abr,
+                            "filesize": f.get("filesize"),
+                            "acodec": f.get("acodec"),
+                        })
+            
+            # Sort formats
+            video_formats.sort(key=lambda x: x.get("resolution", ""), reverse=True)
+            audio_formats.sort(key=lambda x: x.get("abr", 0), reverse=True)
             
             return {
                 "title": info.get("title"),
                 "url": url,
-                "video_formats": video_formats,
-                "audio_formats": audio_formats,
+                "video_formats": video_formats[:10],  # Limit to top 10
+                "audio_formats": audio_formats[:10],
             }
     
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        if "Sign in" in error_msg or "bot" in error_msg:
+            raise HTTPException(
+                status_code=403, 
+                detail="YouTube requires authentication. Please add cookies.txt file to the server. "
+                       "See: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"
+            )
+        raise HTTPException(status_code=500, detail=f"Failed to fetch formats: {error_msg}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch formats: {str(e)}")
 
@@ -274,15 +326,11 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
             }))
     
     output_template = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
-    ydl_opts = {
-        "cookiefile": "cookies.txt",
+    ydl_opts = get_ydl_opts({
         "format": format_id,
         "outtmpl": output_template,
-        "nocheckcertificate": True,
-        "quiet": True,
-        "no_warnings": True,
         "progress_hooks": [progress_hook],
-    }
+    })
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -295,6 +343,18 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
                 "title": info.get("title"),
                 "filename": filename,
                 "download_url": f"/downloads/{filename}",
+            })
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        if "Sign in" in error_msg or "bot" in error_msg:
+            await send_progress(download_id, {
+                "event": "error",
+                "error": "YouTube requires authentication. Please contact the server administrator to add cookies.txt"
+            })
+        else:
+            await send_progress(download_id, {
+                "event": "error",
+                "error": error_msg
             })
     except Exception as e:
         await send_progress(download_id, {
@@ -403,4 +463,18 @@ def get_available_files():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    cookies_status = "OK" if os.path.exists(COOKIES_FILE) else "MISSING"
+    return {
+        "status": "healthy",
+        "cookies": cookies_status,
+        "cookies_path": COOKIES_FILE
+    }
+
+
+@app.get("/")
+async def root():
+    return {
+        "message": "YouTube/Spotify Downloader API",
+        "docs": "/docs",
+        "health": "/health"
+    }

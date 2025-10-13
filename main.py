@@ -146,8 +146,8 @@ async def initiate_download(request: DownloadRequest):
         "message": "Download initiated"
     }
 
-@app.get("/api/download/best/audio/{url:path}")
-async def download_best_audio(url: str):
+@app.get("/api/download/best/audio")
+async def download_best_audio(url: str = Query(..., description="The URL to download audio from")):
     """Download best audio for a given URL"""
     download_id = str(uuid.uuid4())
     download_progress[download_id] = {"status": "starting", "message": "Downloading best audio..."}
@@ -173,8 +173,8 @@ async def download_best_audio(url: str):
     asyncio.create_task(download_task())
     return {"download_id": download_id, "progress_url": f"/api/progress/{download_id}"}
 
-@app.get("/api/download/best/video/{url:path}")
-async def download_best_video(url: str):
+@app.get("/api/download/best/video")
+async def download_best_video(url: str = Query(..., description="The URL to download video from")):
     """Download best video for a given URL"""
     download_id = str(uuid.uuid4())
     download_progress[download_id] = {"status": "starting", "message": "Downloading best video..."}

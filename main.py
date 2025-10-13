@@ -215,17 +215,13 @@ async def stream_progress(download_id: str):
                     
                     # If download is done or error, send final event and break
                     if progress_data.get("status") in ["done", "error"]:
-                        # Clean up after sending final event
-                        await asyncio.sleep(1)
-                        if download_id in download_progress:
-                            del download_progress[download_id]
-                        break
-                
-                await asyncio.sleep(0.5)
-        except asyncio.CancelledError:
-            # Client disconnected
-            pass
-    
+                        yield f"data: {json.dumps(progress_data)}\n\n"
+                        for _ in range(4):
+                            yield ":\n\n"  # SSE comment line keeps connection alive
+                            await asyncio.sleep(0.5)
+                            if download_id in download_progress:
+                                del download_progress[download_id]
+                                break
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",

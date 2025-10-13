@@ -12,6 +12,7 @@ import subprocess
 import zipfile
 from typing import Optional
 import json
+import mimetypes
 
 app = FastAPI()
 
@@ -327,7 +328,6 @@ async def delete_file(filename: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
-
 @app.get("/downloads/{filename:path}")
 async def download(filename: str, request: Request):
     file_path = os.path.join(DOWNLOAD_DIR, filename)
@@ -336,6 +336,11 @@ async def download(filename: str, request: Request):
 
     file_size = os.path.getsize(file_path)
     range_header = request.headers.get("range")
+
+    # Detect MIME type
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        mime_type = "application/octet-stream"
 
     def file_generator(start: int, end: int):
         with open(file_path, "rb") as f:
@@ -366,7 +371,7 @@ async def download(filename: str, request: Request):
                 "Content-Length": str(byte2 - byte1 + 1),
                 "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
             },
-            media_type="application/octet-stream",
+            media_type=mime_type,
         )
     else:
         return StreamingResponse(
@@ -376,9 +381,8 @@ async def download(filename: str, request: Request):
                 "Accept-Ranges": "bytes",
                 "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
             },
-            media_type="application/octet-stream",
+            media_type=mime_type,
         )
-
 
 VIDEO_EXTS = {"mp4", "mkv", "webm"}
 AUDIO_EXTS = {"mp3", "m4a", "aac", "wav"}

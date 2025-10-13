@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from urllib.parse import quote
 import yt_dlp
@@ -146,7 +146,60 @@ async def initiate_download(request: DownloadRequest):
         "message": "Download initiated"
     }
 
+@app.get("/api/download/best/audio/{url:path}")
+async def download_best_audio(url: str):
+    """Download best audio for a given URL"""
+    download_id = str(uuid.uuid4())
+    download_progress[download_id] = {"status": "starting", "message": "Downloading best audio..."}
 
+    async def download_task():
+        try:
+            ydl_opts = get_ydl_opts({
+                "format": "bestaudio/best",
+                "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
+            })
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filepath = ydl.prepare_filename(info)
+                filename = os.path.basename(filepath)
+                download_progress[download_id] = {
+                    "status": "done",
+                    "filename": filename,
+                    "download_url": f"/downloads/{filename}",
+                }
+        except Exception as e:
+            download_progress[download_id] = {"status": "error", "error": str(e)}
+
+    asyncio.create_task(download_task())
+    return {"download_id": download_id, "progress_url": f"/api/progress/{download_id}"}
+
+@app.get("/api/download/best/video/{url:path}")
+async def download_best_video(url: str):
+    """Download best video for a given URL"""
+    download_id = str(uuid.uuid4())
+    download_progress[download_id] = {"status": "starting", "message": "Downloading best video..."}
+
+    async def download_task():
+        try:
+            ydl_opts = get_ydl_opts({
+                "format": "bestvideo+bestaudio/best",
+                "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
+            })
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filepath = ydl.prepare_filename(info)
+                filename = os.path.basename(filepath)
+                download_progress[download_id] = {
+                    "status": "done",
+                    "filename": filename,
+                    "download_url": f"/downloads/{filename}",
+                }
+        except Exception as e:
+            download_progress[download_id] = {"status": "error", "error": str(e)}
+
+    asyncio.create_task(download_task())
+    return {"download_id": download_id, "progress_url": f"/api/progress/{download_id}"}
+    
 @app.get("/api/progress/{download_id}")
 async def stream_progress(download_id: str):
     """Stream progress updates using Server-Sent Events"""

@@ -14,6 +14,7 @@ from typing import Optional
 import json
 import mimetypes
 from collections import deque
+import functools
 
 app = FastAPI()
 
@@ -175,25 +176,9 @@ async def download_best_audio(url: str = Query(..., description="The URL to down
     download_id = str(uuid.uuid4())
     download_progress[download_id] = {"status": "starting", "message": "Downloading best audio..."}
 
-    async def download_task():
-        try:
-            ydl_opts = get_ydl_opts({
-                "format": "bestaudio/best",
-                "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
-            })
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filepath = ydl.prepare_filename(info)
-                filename = os.path.basename(filepath)
-                download_progress[download_id] = {
-                    "status": "done",
-                    "filename": filename,
-                    "download_url": f"/downloads/{filename}",
-                }
-        except Exception as e:
-            download_progress[download_id] = {"status": "error", "error": str(e)}
-
-    asyncio.create_task(download_task())
+    # Start download in background with progress tracking
+    asyncio.create_task(process_ytdlp_download(download_id, url, "bestaudio/best"))
+    
     return {"download_id": download_id, "progress_url": f"/api/progress/{download_id}"}
 
 @app.get("/api/download/best/video")
@@ -202,25 +187,9 @@ async def download_best_video(url: str = Query(..., description="The URL to down
     download_id = str(uuid.uuid4())
     download_progress[download_id] = {"status": "starting", "message": "Downloading best video..."}
 
-    async def download_task():
-        try:
-            ydl_opts = get_ydl_opts({
-                "format": "bestvideo+bestaudio/best",
-                "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
-            })
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filepath = ydl.prepare_filename(info)
-                filename = os.path.basename(filepath)
-                download_progress[download_id] = {
-                    "status": "done",
-                    "filename": filename,
-                    "download_url": f"/downloads/{filename}",
-                }
-        except Exception as e:
-            download_progress[download_id] = {"status": "error", "error": str(e)}
-
-    asyncio.create_task(download_task())
+    # Start download in background with progress tracking
+    asyncio.create_task(process_ytdlp_download(download_id, url, "bestvideo+bestaudio/best"))
+    
     return {"download_id": download_id, "progress_url": f"/api/progress/{download_id}"}
     
 @app.get("/api/progress/{download_id}")
@@ -363,9 +332,10 @@ async def process_spotify_download(download_id: str, url: str):
 
 
 async def process_ytdlp_download(download_id: str, url: str, format_id: str):
-    """Handle yt-dlp downloads with progress tracking"""
+    """Handle yt-dlp downloads with progress tracking - runs in executor to avoid blocking"""
     
     def progress_hook(d):
+        """This runs in the thread pool, but we can safely update the dict"""
         if d["status"] == "downloading":
             # Calculate percentage
             total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
@@ -388,6 +358,7 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
                 else:
                     speed_str = f"{speed:.2f} B/s"
             
+            # Update progress - safe because we're just updating a dict
             download_progress[download_id] = {
                 "status": "downloading",
                 "percent": percent_str,
@@ -404,31 +375,38 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
                 "percent": "100%"
             }
     
-    output_template = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
-    ydl_opts = get_ydl_opts({
-        "format": format_id,
-        "outtmpl": output_template,
-        "progress_hooks": [progress_hook],
-    })
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filepath = ydl.prepare_filename(info)
-            filename = os.path.basename(filepath)
-            
-            download_progress[download_id] = {
-                "status": "done",
-                "title": info.get("title"),
-                "filename": filename,
-                "download_url": f"/downloads/{filename}",
-                "percent": "100%"
+    def blocking_download():
+        """The actual blocking download operation"""
+        output_template = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
+        ydl_opts = get_ydl_opts({
+            "format": format_id,
+            "outtmpl": output_template,
+            "progress_hooks": [progress_hook],  # This is the key - progress_hook gets called by yt-dlp
+        })
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filepath = ydl.prepare_filename(info)
+                filename = os.path.basename(filepath)
+                
+                return {
+                    "status": "done",
+                    "title": info.get("title"),
+                    "filename": filename,
+                    "download_url": f"/downloads/{filename}",
+                    "percent": "100%"
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e)
             }
-    except Exception as e:
-        download_progress[download_id] = {
-            "status": "error",
-            "error": str(e)
-        }
+    
+    # Run the blocking download in a thread pool executor
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, blocking_download)
+    download_progress[download_id] = result
 
 
 @app.delete("/api/files/{filename}")
@@ -544,4 +522,4 @@ async def root():
         "message": "YouTube/Spotify Downloader API",
         "docs": "/docs",
         "health": "/health"
-                    }
+                        }

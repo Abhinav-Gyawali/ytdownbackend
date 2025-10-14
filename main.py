@@ -37,6 +37,27 @@ class DownloadRequest(BaseModel):
     url: str
     format_id: str
 
+class ProgressResponse(BaseModel);
+    progress: float
+    eta: int
+    speed: float
+
+class SSESvent:
+    EVENTS = deque()
+    @staticmethod
+    def add_event(event: ProgressResponse):
+        SSEEvent.EVENTS.append(event)
+
+    @staticmethod
+    def get_event():
+        if len(SSEEvent.EVENTS) > 0:
+            return SSEEvent.EVENTS.popleft()
+        return None
+        
+    @staticmethod
+    def count():
+        return len(SSEEvent.EVENTS)
+
 def get_ydl_opts(additional_opts: dict = None) -> dict:
     """Get yt-dlp options with cookie handling"""
     base_opts = {

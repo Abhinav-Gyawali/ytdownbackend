@@ -13,6 +13,7 @@ import zipfile
 from typing import Optional
 import json
 import mimetypes
+from collections import deque
 
 app = FastAPI()
 
@@ -37,13 +38,14 @@ class DownloadRequest(BaseModel):
     url: str
     format_id: str
 
-class ProgressResponse(BaseModel);
+class ProgressResponse(BaseModel):
     progress: float
     eta: int
     speed: float
 
-class SSESvent:
+class SSEEvent:
     EVENTS = deque()
+    
     @staticmethod
     def add_event(event: ProgressResponse):
         SSEEvent.EVENTS.append(event)
@@ -236,13 +238,30 @@ async def stream_progress(download_id: str):
                     
                     # If download is done or error, send final event and break
                     if progress_data.get("status") in ["done", "error"]:
-                        yield f"data: {json.dumps(progress_data)}\n\n"
+                        # Keep connection alive briefly, then cleanup
                         for _ in range(4):
                             yield ":\n\n"  # SSE comment line keeps connection alive
                             await asyncio.sleep(0.5)
-                            if download_id in download_progress:
-                                del download_progress[download_id]
-                                break
+                        
+                        # Cleanup
+                        if download_id in download_progress:
+                            del download_progress[download_id]
+                        break
+                    
+                    # Wait before next update
+                    await asyncio.sleep(0.5)
+                else:
+                    # Download ID not found
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Download ID not found'})}\n\n"
+                    break
+                    
+        except asyncio.CancelledError:
+            # Client disconnected
+            if download_id in download_progress:
+                del download_progress[download_id]
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+    
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -275,7 +294,10 @@ async def process_spotify_download(download_id: str, url: str):
     try:
         download_progress[download_id] = {
             "status": "downloading",
-            "message": "Downloading from Spotify..."
+            "message": "Downloading from Spotify...",
+            "percent": "0%",
+            "eta": None,
+            "speed": None
         }
         
         cmd = [
@@ -345,18 +367,41 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
     
     def progress_hook(d):
         if d["status"] == "downloading":
+            # Calculate percentage
+            total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate", 0)
+            downloaded_bytes = d.get("downloaded_bytes", 0)
+            
+            if total_bytes > 0:
+                percent = (downloaded_bytes / total_bytes) * 100
+                percent_str = f"{percent:.1f}%"
+            else:
+                percent_str = d.get("_percent_str", "0%").strip()
+            
+            # Format speed
+            speed = d.get("speed")
+            speed_str = None
+            if speed:
+                if speed > 1024 * 1024:
+                    speed_str = f"{speed / (1024 * 1024):.2f} MB/s"
+                elif speed > 1024:
+                    speed_str = f"{speed / 1024:.2f} KB/s"
+                else:
+                    speed_str = f"{speed:.2f} B/s"
+            
             download_progress[download_id] = {
                 "status": "downloading",
-                "percent": d.get("_percent_str", "").strip(),
-                "downloaded_bytes": d.get("downloaded_bytes", 0),
-                "total_bytes": d.get("total_bytes", 0),
+                "percent": percent_str,
+                "downloaded_bytes": downloaded_bytes,
+                "total_bytes": total_bytes,
                 "eta": d.get("eta"),
-                "speed": d.get("speed"),
+                "speed": speed_str,
+                "speed_bytes": speed,
             }
         elif d["status"] == "finished":
             download_progress[download_id] = {
                 "status": "processing",
-                "message": "Processing file..."
+                "message": "Processing file...",
+                "percent": "100%"
             }
     
     output_template = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
@@ -377,6 +422,7 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
                 "title": info.get("title"),
                 "filename": filename,
                 "download_url": f"/downloads/{filename}",
+                "percent": "100%"
             }
     except Exception as e:
         download_progress[download_id] = {
@@ -498,4 +544,4 @@ async def root():
         "message": "YouTube/Spotify Downloader API",
         "docs": "/docs",
         "health": "/health"
-        }
+                    }

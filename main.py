@@ -93,7 +93,14 @@ async def get_formats(request: FormatRequest):
                     "filesize": 8374838,
                 }
             ],
-            "video_formats": [],
+            "video_formats": [
+                {
+                    "format_id": "spotify_mp3",
+                    "ext": "mp3",
+                    "abr": 82.48,
+                    "filesize": 8374838,
+                }
+            ],
         }
     
     try:

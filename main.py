@@ -451,6 +451,9 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
     
     def blocking_ytdlp_download():
         try:
+            # Determine if this is an audio-only download
+            is_audio_only = format_id in ["best-audio", "bestaudio"]
+            
             # Handle format selection
             if format_id == "best-audio":
                 fmt = "bestaudio/best"
@@ -461,12 +464,29 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
             
             output_template = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
             
+            # Base options
             ydl_opts = get_ydl_opts({
                 "format": fmt,
                 "outtmpl": output_template,
                 "progress_hooks": [progress_hook],
-                "merge_output_format": "mp4",  # Ensure merged files are mp4
             })
+            
+            # Audio-specific options
+            if is_audio_only:
+                ydl_opts.update({
+                    "postprocessors": [{
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "192",
+                    }],
+                    "format": "bestaudio/best",
+                    "keepvideo": False,
+                })
+            else:
+                # Video options - merge to mp4
+                ydl_opts.update({
+                    "merge_output_format": "mp4",
+                })
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -481,13 +501,23 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
                         "message": f"Creating ZIP for {len(entries)} files..."
                     }
                     
-                    # Find downloaded files
+                    # Find downloaded files (need to check for converted audio files)
                     downloaded_files = []
                     for entry in entries:
                         if entry:
                             filename = ydl.prepare_filename(entry)
-                            if os.path.exists(filename):
-                                downloaded_files.append(filename)
+                            
+                            # If audio conversion happened, look for .mp3 file
+                            if is_audio_only:
+                                base_name = os.path.splitext(filename)[0]
+                                mp3_file = f"{base_name}.mp3"
+                                if os.path.exists(mp3_file):
+                                    downloaded_files.append(mp3_file)
+                                elif os.path.exists(filename):
+                                    downloaded_files.append(filename)
+                            else:
+                                if os.path.exists(filename):
+                                    downloaded_files.append(filename)
                     
                     # Create ZIP
                     zip_filename = f"playlist_{download_id[:8]}.zip"
@@ -514,6 +544,17 @@ async def process_ytdlp_download(download_id: str, url: str, format_id: str):
                 # Single file
                 else:
                     filepath = ydl.prepare_filename(info)
+                    
+                    # If audio conversion happened, update filepath to .mp3
+                    if is_audio_only:
+                        base_name = os.path.splitext(filepath)[0]
+                        mp3_file = f"{base_name}.mp3"
+                        if os.path.exists(mp3_file):
+                            filepath = mp3_file
+                    
+                    if not os.path.exists(filepath):
+                        return {"status": "error", "error": "Downloaded file not found"}
+                    
                     filename = os.path.basename(filepath)
                     filesize = os.path.getsize(filepath)
                     
@@ -766,6 +807,7 @@ async def root():
             "SSE progress streaming",
             "Playlist auto-zipping",
             "Resume/pause support",
-            "File management"
+            "File management",
+            "Audio extraction to MP3"
         ]
     }

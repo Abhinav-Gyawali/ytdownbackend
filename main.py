@@ -317,11 +317,9 @@ async def process_spotify_download(download_id: str, url: str):
             }
             
             cmd = [
-                "spotdl",
+                "spotdl download",
                 url,
                 "--format", "mp3",
-                "--bitrate", "320",
-                "--output", "{title}",
             ]
             
             if os.path.exists(COOKIES_FILE):

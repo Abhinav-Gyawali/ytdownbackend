@@ -10,7 +10,7 @@ starlette
 
 # Video/Audio downloading
 yt-dlp
-spotdl
+spotdl==4.4.3
 spotipy
 
 # Audio processing (required for yt-dlp audio extraction/conversion)

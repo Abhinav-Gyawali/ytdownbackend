@@ -319,9 +319,9 @@ async def process_spotify_download(download_id: str, url: str):
             cmd = [
                 "spotdl",
                 "download",
+                url,
                 "--cookie-file", COOKIES_FILE,
                 "--format", "mp3",
-                url,
             ]
             
             # Track files before download

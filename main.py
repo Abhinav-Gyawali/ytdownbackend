@@ -319,11 +319,10 @@ async def process_spotify_download(download_id: str, url: str):
             cmd = [
                 "spotdl",
                 "download",
+                "--cookie-file", COOKIES_FILE,
+                "--format", "mp3",
                 url,
             ]
-            
-            if os.path.exists(COOKIES_FILE):
-                cmd.extend(["--cookie-file", COOKIES_FILE])
             
             # Track files before download
             files_before = set(os.listdir(DOWNLOAD_DIR))
